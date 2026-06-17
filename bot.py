@@ -16,22 +16,28 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- FUNGSI FORMAT WAKTU ---
 def clean_row(val):
-    if not val: return None
+    """Membersihkan data agar menjadi format 24 jam HH:MM"""
+    if not val or val == "" or val == "-": return None
     val = str(val).strip()
     try:
+        # Jika format mengandung AM/PM, konversi ke 24 jam
         if "AM" in val.upper() or "PM" in val.upper():
             return datetime.strptime(val, "%I:%M:%S %p").strftime("%H:%M")
+        # Jika format sudah HH:MM:SS, ambil HH:MM
         elif ":" in val:
             return ":".join(val.split(':')[:2])
-    except: pass
+    except:
+        return None
     return val
 
 def get_pht(wib_time_str):
+    """Kalkulasi WIB ke PHT (WIB + 1 jam)"""
     try:
         h, m = map(int, wib_time_str.split(':'))
         h = (h + 1) % 24
         return f"{h:02d}:{m:02d}"
-    except: return "--:--"
+    except: 
+        return "--:--"
 
 # --- KOMPONEN UI ---
 class BossView(discord.ui.View):
@@ -62,15 +68,13 @@ async def check_boss_timer():
             
             diff = (respawn_dt - now_wib).total_seconds() / 60
             
-            # Notifikasi -10 menit
             if 9.5 <= diff <= 10.5:
                 await channel.send(f"@everyone ⚠️ **10 Minutes Left!** {row[0]} will spawn soon.")
-            # Notifikasi -5 menit
             elif 4.5 <= diff <= 5.5:
                 await channel.send(f"@everyone ⏳ **5 Minutes Left!** Prepare for {row[0]}!")
-            # Notifikasi Spawn (0 menit)
             elif -0.5 <= diff <= 0.5:
-                dual_time = f"🇮🇩 {spawn_str} WIB | 🇵🇭 {get_pht(spawn_str)} PHT"
+                pht_time = get_pht(spawn_str)
+                dual_time = f"🇮🇩 {spawn_str} WIB | 🇵🇭 {pht_time} PHT"
                 await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**\n⏰ {dual_time}", view=BossView(row[0]))
     except Exception as e:
         print(f"Error loop: {e}")
@@ -83,7 +87,9 @@ async def status(ctx):
     for row in res.get('interval', [])[1:]:
         if row[0]:
             wib = clean_row(row[3])
-            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {wib if wib else '--:--'} WIB | 🇵🇭 {get_pht(wib) if wib else '--:--'} PHT", inline=False)
+            # Tampilkan waktu PH selama data WIB ditemukan
+            pht_val = get_pht(wib) if wib else "--:--"
+            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {wib if wib else '--:--'} WIB | 🇵🇭 {pht_val} PHT", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
