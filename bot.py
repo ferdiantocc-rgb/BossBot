@@ -21,7 +21,7 @@ class BossView(View):
         super().__init__(timeout=None)
         self.boss_name = boss_name
 
-    @discord.ui.button(label="💀 Boss Sudah Mati", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="💀 Boss Killed", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(pytz.timezone('Asia/Jakarta'))
         death_time_str = now_wib.strftime("%H:%M:%S")
