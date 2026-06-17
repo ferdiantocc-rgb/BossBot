@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import requests
 import os
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- KONFIGURASI ---
 SHEET_URL = os.environ.get('SHEET_URL')
@@ -16,20 +16,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- FUNGSI FORMAT WAKTU ---
 def clean_row(val):
-    """Membersihkan data dari sheet menjadi format HH:MM"""
-    if not val or val == "None" or str(val).strip() == "": return None
-    val = str(val).strip()
+    if not val or str(val).strip() in ["", "-", "None"]: return None
+    val = str(val).strip().replace('.', ':') # Mengubah 11.59 jadi 11:59
     try:
-        # Jika ada titik (seperti 11.59 di screenshot), ubah jadi 11:59
-        val = val.replace('.', ':')
-        if ":" in val:
-            parts = val.split(':')
-            return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
-    except: pass
-    return None
+        parts = val.split(':')
+        return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
+    except: return None
 
 def get_pht(wib_time_str):
-    """Menambah 1 jam untuk PHT"""
     try:
         h, m = map(int, wib_time_str.split(':'))
         h = (h + 1) % 24
@@ -44,7 +38,13 @@ class BossView(discord.ui.View):
 
     @discord.ui.button(label="Boss Mati (Mulai Ulang) ✅", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati.", ephemeral=False)
+        now_wib = datetime.now(pytz.timezone('Asia/Jakarta')).strftime('%H:%M')
+        try:
+            # Mengirim data kematian ke Google Sheets
+            requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
+            await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati pada {now_wib}.", ephemeral=False)
+        except Exception as e:
+            await interaction.response.send_message(f"Error update: {e}", ephemeral=True)
 
 # --- TASK LOOP ---
 @tasks.loop(minutes=1)
@@ -62,7 +62,6 @@ async def check_boss_timer():
             
             h, m = map(int, spawn_str.split(':'))
             respawn_dt = now_wib.replace(hour=h, minute=m, second=0, microsecond=0)
-            
             diff = (respawn_dt - now_wib).total_seconds() / 60
             
             if 9.5 <= diff <= 10.5:
@@ -82,9 +81,8 @@ async def status(ctx):
     for row in res.get('interval', [])[1:]:
         if row[0]:
             wib = clean_row(row[3])
-            display_wib = wib if wib else "----"
-            display_pht = get_pht(wib) if wib else "----"
-            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {display_wib} WIB | 🇵🇭 {display_pht} PHT", inline=False)
+            pht_val = get_pht(wib) if wib else "--:--"
+            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {wib if wib else '----'} WIB | 🇵🇭 {pht_val} PHT", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
