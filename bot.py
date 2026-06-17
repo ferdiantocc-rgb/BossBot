@@ -14,7 +14,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- FUNGSI UTAMA ---
+# --- FUNGSI FORMAT WAKTU ---
 def get_pht(wib_time_str):
     """Mengonversi jam HH:MM WIB ke PHT (+1 jam)"""
     try:
@@ -28,12 +28,9 @@ def get_pht(wib_time_str):
 def clean_row(val):
     """Membersihkan nilai sel agar menjadi string HH:MM"""
     if not val: return None
-    # Jika objek datetime dari sheet, ambil jamnya
-    if hasattr(val, 'strftime'): return val.strftime('%H:%M')
-    # Jika string panjang, coba potong
+    # Jika string mengandung jam, ekstrak 5 karakter pertama
     if isinstance(val, str) and ":" in val:
-        parts = val.split(':')
-        return f"{parts[0][-2:]}:{parts[1][:2]}"
+        return val[:5]
     return str(val)
 
 # --- TOMBOL ---
@@ -44,7 +41,7 @@ class BossView(discord.ui.View):
 
     @discord.ui.button(label="Boss Mati (Mulai Ulang) ✅", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati. Jadwal diperbarui.", ephemeral=False)
+        await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati.", ephemeral=False)
 
 # --- TASK LOOP (NOTIFIKASI) ---
 @tasks.loop(minutes=1)
@@ -59,10 +56,14 @@ async def check_boss_timer():
         for row in data[1:]:
             if not row[0]: continue
             spawn_wib = clean_row(row[3])
+            if not spawn_wib: continue
             
+            # Notifikasi pada waktu tepat (0 menit)
             if spawn_wib == now:
-                await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**\n🇮🇩 {spawn_wib} WIB | 🇵🇭 {get_pht(spawn_wib)} PHT", view=BossView(row[0]))
-    except: pass
+                dual_time = f"🇮🇩 {spawn_wib} WIB | 🇵🇭 {get_pht(spawn_wib)} PHT"
+                await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**\n⏰ {dual_time}", view=BossView(row[0]))
+    except Exception as e:
+        print(f"Error loop: {e}")
 
 # --- COMMANDS ---
 @bot.command()
@@ -72,7 +73,8 @@ async def status(ctx):
     for row in res.get('interval', [])[1:]:
         if row[0]:
             wib = clean_row(row[3])
-            embed.add_field(name=f" {row[0]}", value=f"🇮🇩 {wib} WIB | 🇵🇭 {get_pht(wib)} PHT", inline=False)
+            # Menampilkan tanpa tanda ❌
+            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {wib if wib else '--:--'} WIB | 🇵🇭 {get_pht(wib) if wib else '--:--'} PHT", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
