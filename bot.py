@@ -3,8 +3,8 @@ from discord.ext import commands
 import requests
 import os
 
-TOKEN = 'MASUKKAN_TOKEN_BOT_ANDA'
-WEBHOOK_URL = 'MASUKKAN_URL_GOOGLE_SCRIPT_ANDA'
+TOKEN = 'MTQ5Nzg3MzY3OTg2NDk1NDk4MQ.GmIWcQ.3TUJb9K9ONpeBC9ulA8CLAuooMD95L_YHytDlo'
+WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyS9PpTW-yiw1_EqLYBgw6zoUK6yhIKMB3gfgNLhxGG5lt_XJZfBizJX083ANFbCvTP/exec'
 
 intents = discord.Intents.default()
 intents.message_content = True
