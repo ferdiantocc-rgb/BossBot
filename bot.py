@@ -21,7 +21,7 @@ class BossView(View):
         super().__init__(timeout=None)
         self.boss_name = boss_name
 
-    @discord.ui.button(label="💀 Boss Sudah Mati", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="💀 Boss Killed", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(WIB)
         requests.post(SHEET_URL, json={"bossName": self.boss_name, "deathTime": now_wib.strftime("%H:%M:%S")})
