@@ -72,7 +72,7 @@ async def status(ctx):
     for row in res.get('interval', [])[1:]:
         if row[0]:
             wib = clean_row(row[3])
-            embed.add_field(name=f"❌ {row[0]}", value=f"🇮🇩 {wib} WIB | 🇵🇭 {get_pht(wib)} PHT", inline=False)
+            embed.add_field(name=f" {row[0]}", value=f"🇮🇩 {wib} WIB | 🇵🇭 {get_pht(wib)} PHT", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
