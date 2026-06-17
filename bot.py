@@ -16,28 +16,25 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- FUNGSI FORMAT WAKTU ---
 def clean_row(val):
-    """Membersihkan data agar menjadi format 24 jam HH:MM"""
-    if not val or val == "" or val == "-": return None
+    """Membersihkan data dari sheet menjadi format HH:MM"""
+    if not val or val == "None" or str(val).strip() == "": return None
     val = str(val).strip()
     try:
-        # Jika format mengandung AM/PM, konversi ke 24 jam
-        if "AM" in val.upper() or "PM" in val.upper():
-            return datetime.strptime(val, "%I:%M:%S %p").strftime("%H:%M")
-        # Jika format sudah HH:MM:SS, ambil HH:MM
-        elif ":" in val:
-            return ":".join(val.split(':')[:2])
-    except:
-        return None
-    return val
+        # Jika ada titik (seperti 11.59 di screenshot), ubah jadi 11:59
+        val = val.replace('.', ':')
+        if ":" in val:
+            parts = val.split(':')
+            return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
+    except: pass
+    return None
 
 def get_pht(wib_time_str):
-    """Kalkulasi WIB ke PHT (WIB + 1 jam)"""
+    """Menambah 1 jam untuk PHT"""
     try:
         h, m = map(int, wib_time_str.split(':'))
         h = (h + 1) % 24
         return f"{h:02d}:{m:02d}"
-    except: 
-        return "--:--"
+    except: return "--:--"
 
 # --- KOMPONEN UI ---
 class BossView(discord.ui.View):
@@ -49,7 +46,7 @@ class BossView(discord.ui.View):
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati.", ephemeral=False)
 
-# --- TASK LOOP (NOTIFIKASI -10, -5, 0) ---
+# --- TASK LOOP ---
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     if not CHANNEL_ID or not SHEET_URL: return
@@ -74,10 +71,8 @@ async def check_boss_timer():
                 await channel.send(f"@everyone ⏳ **5 Minutes Left!** Prepare for {row[0]}!")
             elif -0.5 <= diff <= 0.5:
                 pht_time = get_pht(spawn_str)
-                dual_time = f"🇮🇩 {spawn_str} WIB | 🇵🇭 {pht_time} PHT"
-                await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**\n⏰ {dual_time}", view=BossView(row[0]))
-    except Exception as e:
-        print(f"Error loop: {e}")
+                await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**\n⏰ 🇮🇩 {spawn_str} WIB | 🇵🇭 {pht_time} PHT", view=BossView(row[0]))
+    except: pass
 
 # --- COMMANDS ---
 @bot.command()
@@ -87,9 +82,9 @@ async def status(ctx):
     for row in res.get('interval', [])[1:]:
         if row[0]:
             wib = clean_row(row[3])
-            # Tampilkan waktu PH selama data WIB ditemukan
-            pht_val = get_pht(wib) if wib else "--:--"
-            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {wib if wib else '--:--'} WIB | 🇵🇭 {pht_val} PHT", inline=False)
+            display_wib = wib if wib else "----"
+            display_pht = get_pht(wib) if wib else "----"
+            embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {display_wib} WIB | 🇵🇭 {display_pht} PHT", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
