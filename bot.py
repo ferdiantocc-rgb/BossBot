@@ -15,25 +15,25 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- FUNGSI FORMAT WAKTU ---
+def clean_row(val):
+    if not val: return None
+    val = str(val).strip()
+    try:
+        if "AM" in val.upper() or "PM" in val.upper():
+            return datetime.strptime(val, "%I:%M:%S %p").strftime("%H:%M")
+        elif ":" in val:
+            return ":".join(val.split(':')[:2])
+    except: pass
+    return val
+
 def get_pht(wib_time_str):
-    """Mengonversi jam HH:MM WIB ke PHT (+1 jam)"""
     try:
         h, m = map(int, wib_time_str.split(':'))
-        wib = datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
-        pht = wib + timedelta(hours=1)
-        return pht.strftime('%H:%M')
-    except:
-        return "--:--"
+        h = (h + 1) % 24
+        return f"{h:02d}:{m:02d}"
+    except: return "--:--"
 
-def clean_row(val):
-    """Membersihkan nilai sel agar menjadi string HH:MM"""
-    if not val: return None
-    # Jika string mengandung jam, ekstrak 5 karakter pertama
-    if isinstance(val, str) and ":" in val:
-        return val[:5]
-    return str(val)
-
-# --- TOMBOL ---
+# --- KOMPONEN UI ---
 class BossView(discord.ui.View):
     def __init__(self, boss_name):
         super().__init__(timeout=None)
@@ -43,24 +43,34 @@ class BossView(discord.ui.View):
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati.", ephemeral=False)
 
-# --- TASK LOOP (NOTIFIKASI) ---
+# --- TASK LOOP (NOTIFIKASI -10, -5, 0) ---
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     if not CHANNEL_ID or not SHEET_URL: return
     try:
         res = requests.get(SHEET_URL).json()
-        data = res.get('interval', [])
-        now = datetime.now(pytz.timezone('Asia/Jakarta')).strftime('%H:%M')
+        now_wib = datetime.now(pytz.timezone('Asia/Jakarta'))
         channel = bot.get_channel(CHANNEL_ID)
         
-        for row in data[1:]:
+        for row in res.get('interval', [])[1:]:
             if not row[0]: continue
-            spawn_wib = clean_row(row[3])
-            if not spawn_wib: continue
+            spawn_str = clean_row(row[3])
+            if not spawn_str: continue
             
-            # Notifikasi pada waktu tepat (0 menit)
-            if spawn_wib == now:
-                dual_time = f"🇮🇩 {spawn_wib} WIB | 🇵🇭 {get_pht(spawn_wib)} PHT"
+            h, m = map(int, spawn_str.split(':'))
+            respawn_dt = now_wib.replace(hour=h, minute=m, second=0, microsecond=0)
+            
+            diff = (respawn_dt - now_wib).total_seconds() / 60
+            
+            # Notifikasi -10 menit
+            if 9.5 <= diff <= 10.5:
+                await channel.send(f"@everyone ⚠️ **10 Minutes Left!** {row[0]} will spawn soon.")
+            # Notifikasi -5 menit
+            elif 4.5 <= diff <= 5.5:
+                await channel.send(f"@everyone ⏳ **5 Minutes Left!** Prepare for {row[0]}!")
+            # Notifikasi Spawn (0 menit)
+            elif -0.5 <= diff <= 0.5:
+                dual_time = f"🇮🇩 {spawn_str} WIB | 🇵🇭 {get_pht(spawn_str)} PHT"
                 await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**\n⏰ {dual_time}", view=BossView(row[0]))
     except Exception as e:
         print(f"Error loop: {e}")
@@ -73,18 +83,20 @@ async def status(ctx):
     for row in res.get('interval', [])[1:]:
         if row[0]:
             wib = clean_row(row[3])
-            # Menampilkan tanpa tanda ❌
             embed.add_field(name=f"{row[0]}", value=f"🇮🇩 {wib if wib else '--:--'} WIB | 🇵🇭 {get_pht(wib) if wib else '--:--'} PHT", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
 async def list_fix(ctx):
     res = requests.get(SHEET_URL).json()
-    msg = "**📅 JADWAL BOSS TETAP**\n"
+    msg = "```fix\n"
+    msg += f"{'HARI':<12} | {'JAM':<11} | {'BOSS'}\n"
+    msg += "-"*40 + "\n"
     for row in res.get('fix', [])[1:]:
         if len(row) >= 3:
-            msg += f"• {row[0]} | 🕒 {row[1]} | ⚔️ {row[2]}\n"
-    await ctx.send(msg)
+            msg += f"{row[0]:<12} | {row[1]:<11} | {row[2]}\n"
+    msg += "```"
+    await ctx.send(f"📅 **JADWAL BOSS TETAP 🇮🇩🇵🇭**\n{msg}")
 
 @bot.event
 async def on_ready():
