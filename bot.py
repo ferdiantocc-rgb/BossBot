@@ -34,48 +34,52 @@ async def check_boss_timer():
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         channel = bot.get_channel(CHANNEL_ID)
         
-        # 1. Cek Interval Boss
+        # 1. Cek Interval Boss (Kolom E)
         for row in res.get('interval', [])[1:]:
-            if not row[0] or not row[4]: continue
-            spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
-            diff = (spawn_dt - now).total_seconds() / 60
-            
-            if -0.5 <= diff <= 0.5:
-                await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
-            elif 4.5 <= diff <= 5.5:
-                await channel.send(f"⚠️ **5 Minutes left** for {row[0]}!")
-            elif 9.5 <= diff <= 10.5:
-                await channel.send(f"⚠️ **10 Minutes left** for {row[0]}!")
+            if not row[0] or not row[4] or "#" in str(row[4]): continue
+            try:
+                spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
+                diff = (spawn_dt - now).total_seconds() / 60
+                
+                if -0.5 <= diff <= 0.5:
+                    await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
+                elif 4.5 <= diff <= 5.5:
+                    await channel.send(f"⚠️ **5 Minutes left** for {row[0]}!")
+                elif 9.5 <= diff <= 10.5:
+                    await channel.send(f"⚠️ **10 Minutes left** for {row[0]}!")
+            except: continue
 
         # 2. Cek Fix Boss
-        hari_ini = now.strftime('%A').lower()
+        hari = now.strftime('%A').lower()
         for row in res.get('fix', [])[1:]:
-            if hari_ini in row[0].lower():
-                fix_time = datetime.strptime(row[1], "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=pytz.timezone('Asia/Jakarta'))
-                diff = (fix_time - now).total_seconds() / 60
-                if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[2]} (Fix) SPAWNED!**")
-                elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5 Minutes left** for {row[2]} (Fix)!")
-                elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10 Minutes left** for {row[2]} (Fix)!")
+            if hari in row[0].lower():
+                try:
+                    fix_dt = datetime.strptime(row[1], "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=pytz.timezone('Asia/Jakarta'))
+                    diff = (fix_dt - now).total_seconds() / 60
+                    if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[2]} (Fix) SPAWNED!**")
+                    elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5 Minutes left** for {row[2]} (Fix)!")
+                    elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10 Minutes left** for {row[2]} (Fix)!")
+                except: continue
     except Exception as e: print(f"Loop Error: {e}")
 
 @bot.command()
 async def status(ctx):
-    res = requests.get(SHEET_URL).json()
-    now = datetime.now(pytz.timezone('Asia/Jakarta'))
-    embed = discord.Embed(title="⚔️ JADWAL BOSS & COUNTDOWN", color=discord.Color.gold())
-    
-    for row in res.get('interval', [])[1:]:
-        if row[0] and row[4]:
-            spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
-            diff = int((spawn_dt - now).total_seconds())
-            countdown = f"🔴 Sedang Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
-            
-            embed.add_field(name=f"Boss: {row[0]}", value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}", inline=False)
-    await ctx.send(embed=embed)
+    try:
+        res = requests.get(SHEET_URL).json()
+        now = datetime.now(pytz.timezone('Asia/Jakarta'))
+        embed = discord.Embed(title="⚔️ JADWAL BOSS & COUNTDOWN", color=discord.Color.gold())
+        for row in res.get('interval', [])[1:]:
+            if row[0] and row[4] and "#" not in str(row[4]):
+                spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
+                diff = int((spawn_dt - now).total_seconds())
+                countdown = "🔴 Sedang Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
+                embed.add_field(name=f"Boss: {row[0]}", value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}", inline=False)
+        await ctx.send(embed=embed)
+    except: await ctx.send("Gagal memuat status.")
 
 @bot.event
 async def on_ready():
-    check_boss_timer.start()
+    if not check_boss_timer.is_running(): check_boss_timer.start()
     print('Bot Ready!')
 
 bot.run(TOKEN)
