@@ -76,7 +76,7 @@ async def fix(ctx):
         res = requests.get(SHEET_URL).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         hari = now.strftime('%A').lower()
-        embed = discord.Embed(title="⚔️ JADWAL BOSS FIX HARI INI", color=discord.Color.red())
+        embed = discord.Embed(title="⚔️ SCHEDULE FIX BOSS TODAY", color=discord.Color.red())
         for row in res.get('fix', [])[4:]:
             if row[0] and hari in row[0].lower():
                 embed.add_field(name=f"{row[2]}", value=f"Waktu: {row[1]} WIB", inline=False)
