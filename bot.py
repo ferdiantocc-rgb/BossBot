@@ -20,7 +20,7 @@ class BossView(discord.ui.View):
     def __init__(self, boss_name):
         super().__init__(timeout=None)
         self.boss_name = boss_name
-    @discord.ui.button(label="Boss Mati ✅", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="BOSS KILLED ✅", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(pytz.timezone('Asia/Jakarta')).strftime('%H:%M')
         requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
@@ -63,7 +63,7 @@ async def status(ctx):
     try:
         res = requests.get(SHEET_URL).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
-        embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
+        embed = discord.Embed(title="⚔️ SCHEDULE BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
             if row[0] and row[4] and "#" not in str(row[4]):
                 spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
@@ -79,7 +79,7 @@ async def fix(ctx):
         res = requests.get(SHEET_URL).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         hari = now.strftime('%A').lower()
-        embed = discord.Embed(title="⚔️ JADWAL BOSS FIX", color=discord.Color.red())
+        embed = discord.Embed(title="⚔️ SCHEDULE FIX BOSS TODAY", color=discord.Color.red())
         for row in res.get('fix', [])[4:]:
             if row[0] and hari in row[0].lower():
                 embed.add_field(name=f"{row[2]}", value=f"🇮🇩 {row[1]} WIB | 🇵🇭 {get_pht(row[1].split('/')[0].strip())} PHT", inline=False)
