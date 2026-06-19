@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import requests, os, pytz
-from datetime import datetime, timedelta
+from datetime import datetime
 
 TOKEN = os.environ.get('TOKEN')
 SHEET_URL = os.environ.get('SHEET_URL')
@@ -34,7 +34,7 @@ async def check_boss_timer():
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         channel = bot.get_channel(CHANNEL_ID)
         
-        # 1. Cek Interval Boss (Kolom E: index 4)
+        # 1. Cek Interval Boss
         for row in res.get('interval', [])[1:]:
             if not row[0] or not row[4]: continue
             spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
@@ -47,7 +47,7 @@ async def check_boss_timer():
             elif 9.5 <= diff <= 10.5:
                 await channel.send(f"⚠️ **10 Minutes left** for {row[0]}!")
 
-        # 2. Cek Fix Boss (Logika lama, disesuaikan)
+        # 2. Cek Fix Boss
         hari_ini = now.strftime('%A').lower()
         for row in res.get('fix', [])[1:]:
             if hari_ini in row[0].lower():
@@ -61,11 +61,16 @@ async def check_boss_timer():
 @bot.command()
 async def status(ctx):
     res = requests.get(SHEET_URL).json()
-    embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
+    now = datetime.now(pytz.timezone('Asia/Jakarta'))
+    embed = discord.Embed(title="⚔️ JADWAL BOSS & COUNTDOWN", color=discord.Color.gold())
+    
     for row in res.get('interval', [])[1:]:
-        if row[0]:
-            wib = row[3] # Kolom D (Jam Respawn)
-            embed.add_field(name=row[0], value=f"🇮🇩 {wib} WIB | 🇵🇭 {get_pht(wib)} PHT", inline=False)
+        if row[0] and row[4]:
+            spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
+            diff = int((spawn_dt - now).total_seconds())
+            countdown = f"🔴 Sedang Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
+            
+            embed.add_field(name=f"Boss: {row[0]}", value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}", inline=False)
     await ctx.send(embed=embed)
 
 @bot.event
