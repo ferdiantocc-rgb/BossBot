@@ -24,8 +24,8 @@ class BossView(discord.ui.View):
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(pytz.timezone('Asia/Jakarta')).strftime('%H:%M')
         requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
-        # ephemeral=False agar semua member bisa melihat konfirmasi ini
-        await interaction.response.send_message(f"✅ **{self.boss_name}** telah dilaporkan mati oleh {interaction.user.mention} pada pukul {now_wib} WIB.", ephemeral=False)
+        # Pesan publik agar member lain tahu boss sudah mati
+        await interaction.response.send_message(f"✅ **{self.boss_name}** dilaporkan mati oleh {interaction.user.mention} pada {now_wib} WIB.", ephemeral=False)
 
 @tasks.loop(minutes=1)
 async def check_boss_timer():
@@ -65,14 +65,13 @@ async def status(ctx):
     try:
         res = requests.get(SHEET_URL).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
-        embed = discord.Embed(title="⚔️ BOSS STATUS BOARD", color=discord.Color.gold())
+        embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
             if row[0] and row[4]:
                 spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
                 diff = int((spawn_dt - now).total_seconds())
-                # Logika Status Hidup/Mati
-                status_boss = "🔴 MATI/SPAWN" if diff < 0 else "🟢 HIDUP"
-                embed.add_field(name=f"{row[0]} {status_boss}", value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi", inline=False)
+                countdown = "🔴 Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
+                embed.add_field(name=row[0], value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}", inline=False)
         await ctx.send(embed=embed)
     except: await ctx.send("Gagal memuat status.")
 
