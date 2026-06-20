@@ -1,4 +1,4 @@
-import discord, requests, os, pytz, time
+import discord, requests, os, pytz
 from discord.ext import commands, tasks
 from datetime import datetime
 
@@ -29,8 +29,7 @@ class BossView(discord.ui.View):
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     try:
-        # Menambah &t={time.time()} adalah satu-satunya cara agar Google Sheets tidak mengirim data lama (cache)
-        res = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15).json()
+        res = requests.get(SHEET_URL, timeout=15).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         channel = bot.get_channel(CHANNEL_ID)
         hari = now.strftime('%A').lower()
@@ -41,16 +40,12 @@ async def check_boss_timer():
             try:
                 spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
                 diff = (spawn_dt - now).total_seconds() / 60
-                
-                if -0.5 <= diff <= 0.5: 
-                    await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
-                elif 4.5 <= diff <= 5.5: 
-                    await channel.send(f"@everyone ⚠️ **5 Minutes left** for {row[0]}!")
-                elif 9.5 <= diff <= 10.5: 
-                    await channel.send(f"@everyone 📢 **10 Minutes left** for {row[0]}!")
+                if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
+                elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5 Minutes left** for {row[0]}!")
+                elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10 Minutes left** for {row[0]}!")
             except: continue
 
-        # 2. Cek Fix Boss
+        # 2. Cek Fix Boss (Dengan Notifikasi 10m/5m)
         for row in res.get('fix', [])[4:]:
             if row[0] and hari in row[0].lower():
                 try:
@@ -58,16 +53,15 @@ async def check_boss_timer():
                     fix_dt = datetime.strptime(waktu_mulai, "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=pytz.timezone('Asia/Jakarta'))
                     diff = (fix_dt - now).total_seconds() / 60
                     if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[2]} (Fix) SPAWNED!**")
-                    elif 4.5 <= diff <= 5.5: await channel.send(f"@everyone ⚠️ **5 Minutes left** for {row[2]} (Fix)!")
-                    elif 9.5 <= diff <= 10.5: await channel.send(f"@everyone 📢 **10 Minutes left** for {row[2]} (Fix)!")
+                    elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5 Minutes left** for {row[2]} (Fix)!")
+                    elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10 Minutes left** for {row[2]} (Fix)!")
                 except: continue
     except Exception as e: print(f"Loop Error: {e}")
 
 @bot.command()
 async def status(ctx):
     try:
-        # Sama, tambahkan cache buster di sini
-        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
+        res = requests.get(SHEET_URL).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
@@ -82,7 +76,7 @@ async def status(ctx):
 @bot.command()
 async def fix(ctx):
     try:
-        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
+        res = requests.get(SHEET_URL).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         hari = now.strftime('%A').lower()
         embed = discord.Embed(title="⚔️ JADWAL BOSS FIX", color=discord.Color.red())
