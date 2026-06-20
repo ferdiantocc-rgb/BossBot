@@ -10,6 +10,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Helper untuk PHT
 def get_pht(wib_str):
     try:
         h, m = map(int, wib_str.split(':'))
@@ -23,17 +24,16 @@ class BossView(discord.ui.View):
     @discord.ui.button(label="Boss Mati 💀", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(pytz.timezone('Asia/Jakarta')).strftime('%d/%m/%Y %H:%M')
-        requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
-        await interaction.response.send_message(f"✅ **{self.boss_name}** dicatat mati pada {now_wib} WIB.", ephemeral=False)
+        try:
+            requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
+            await interaction.response.send_message(f"✅ **{self.boss_name}** dicatat mati pada {now_wib} WIB.", ephemeral=False)
+        except:
+            await interaction.response.send_message("❌ Gagal update spreadsheet.", ephemeral=True)
 
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     try:
-        # Menarik data dengan cache-buster
-        response = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15)
-        if response.status_code != 200: return
-        res = response.json()
-        
+        res = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15).json()
         jakarta_tz = pytz.timezone('Asia/Jakarta')
         now = datetime.now(jakarta_tz)
         channel = bot.get_channel(CHANNEL_ID)
@@ -47,8 +47,8 @@ async def check_boss_timer():
                 interval_menit = int(row[1])
                 waktu_mati = datetime.strptime(row[2].strip(), "%d/%m/%Y %H:%M")
                 waktu_mati = jakarta_tz.localize(waktu_mati)
-                spawn_berikutnya = waktu_mati + timedelta(minutes=interval_menit)
-                diff = (spawn_berikutnya - now).total_seconds() / 60
+                spawn = waktu_mati + timedelta(minutes=interval_menit)
+                diff = (spawn - now).total_seconds() / 60
                 
                 if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
                 elif 4.5 <= diff <= 5.5: await channel.send(f"@everyone ⏳ **5 Minutes left** for **{row[0]}**!")
@@ -66,36 +66,36 @@ async def check_boss_timer():
                 elif 4.5 <= diff <= 5.5: await channel.send(f"@everyone ⏳ **5 Minutes left** for **{row[2]}** (Fix)!")
                 elif 9.5 <= diff <= 10.5: await channel.send(f"@everyone 📢 **10 Minutes left** for **{row[2]}** (Fix)!")
             except: continue
-    except Exception as e: print(f"Loop Error: {e}")
+    except Exception as e: print(f"Error: {e}")
 
 @bot.command()
 async def status(ctx):
     try:
-        res = requests.get(SHEET_URL).json()
+        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
             if row[0] and row[1] and row[2]:
-                interval_menit = int(row[1])
+                interval = int(row[1])
                 waktu_mati = datetime.strptime(row[2].strip(), "%d/%m/%Y %H:%M")
                 waktu_mati = pytz.timezone('Asia/Jakarta').localize(waktu_mati)
-                spawn_berikutnya = waktu_mati + timedelta(minutes=interval_menit)
-                diff = int((spawn_berikutnya - now).total_seconds())
+                spawn = waktu_mati + timedelta(minutes=interval)
+                diff = int((spawn - now).total_seconds())
                 countdown = "🔴 Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
-                embed.add_field(name=row[0], value=f"Next: {spawn_berikutnya.strftime('%H:%M')} WIB\n{countdown}", inline=False)
+                embed.add_field(name=row[0], value=f"Next: {spawn.strftime('%H:%M')} WIB\n{countdown}", inline=False)
         await ctx.send(embed=embed)
     except: await ctx.send("Gagal memuat status.")
 
 @bot.command()
 async def fix(ctx):
     try:
-        res = requests.get(SHEET_URL).json()
+        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         hari = now.strftime('%A').lower()
         embed = discord.Embed(title="⚔️ SCHEDULE FIX BOSS TODAY", color=discord.Color.red())
         for row in res.get('fix', [])[3:]:
             if row[0] and hari in row[0].lower():
-                embed.add_field(name=f"{row[2]}", value=f"🇮🇩 {row[1]} WIB", inline=False)
+                embed.add_field(name=f"{row[2]}", value=f"🇮🇩 {row[1]} WIB | 🇵🇭 {get_pht(row[1].split('/')[0].strip())} PHT", inline=False)
         await ctx.send(embed=embed)
     except: await ctx.send("Gagal memuat jadwal Fix.")
 
