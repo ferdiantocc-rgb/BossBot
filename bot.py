@@ -27,20 +27,22 @@ class BossView(discord.ui.View):
         try:
             requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
             await interaction.response.send_message(f"✅ **{self.boss_name}** dicatat mati pada {now_wib} WIB.", ephemeral=False)
-        except:
-            await interaction.response.send_message("❌ Gagal update spreadsheet.", ephemeral=True)
+        except: await interaction.response.send_message("❌ Gagal update.", ephemeral=True)
 
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     try:
-        res = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15).json()
+        response = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15)
+        if response.status_code != 200: return
+        res = response.json()
+        
         jakarta_tz = pytz.timezone('Asia/Jakarta')
         now = datetime.now(jakarta_tz)
         channel = bot.get_channel(CHANNEL_ID)
         if not channel: return
         hari = now.strftime('%A').lower()
 
-        # 1. Cek Interval (Otomatis)
+        # 1. Cek Interval
         for row in res.get('interval', [])[1:]:
             if not row or not row[0] or not row[1] or not row[2]: continue
             try:
@@ -56,48 +58,31 @@ async def check_boss_timer():
             except: continue
 
         # 2. Cek Fix Boss
-        for row in res.get('fix', [])[3:]:
+        for row in res.get('fix', [])[1:]:
             if not row[0] or hari not in row[0].lower(): continue
             try:
-                waktu_awal = row[1].split('/')[0].strip()
-                fix_dt = datetime.strptime(waktu_awal, "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=jakarta_tz)
+                fix_dt = datetime.strptime(row[1].strip(), "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=jakarta_tz)
                 diff = (fix_dt - now).total_seconds() / 60
                 if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[2]} (Fix) SPAWNED!**")
                 elif 4.5 <= diff <= 5.5: await channel.send(f"@everyone ⏳ **5 Minutes left** for **{row[2]}** (Fix)!")
                 elif 9.5 <= diff <= 10.5: await channel.send(f"@everyone 📢 **10 Minutes left** for **{row[2]}** (Fix)!")
             except: continue
-    except Exception as e: print(f"Error: {e}")
+    except Exception as e: print(f"Error Loop: {e}")
 
 @bot.command()
 async def status(ctx):
     try:
-        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
+        res = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=10).json()
         now = datetime.now(pytz.timezone('Asia/Jakarta'))
         embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
             if row[0] and row[1] and row[2]:
-                interval = int(row[1])
-                waktu_mati = datetime.strptime(row[2].strip(), "%d/%m/%Y %H:%M")
-                waktu_mati = pytz.timezone('Asia/Jakarta').localize(waktu_mati)
-                spawn = waktu_mati + timedelta(minutes=interval)
+                spawn = pytz.timezone('Asia/Jakarta').localize(datetime.strptime(row[2].strip(), "%d/%m/%Y %H:%M")) + timedelta(minutes=int(row[1]))
                 diff = int((spawn - now).total_seconds())
                 countdown = "🔴 Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
                 embed.add_field(name=row[0], value=f"Next: {spawn.strftime('%H:%M')} WIB\n{countdown}", inline=False)
         await ctx.send(embed=embed)
-    except: await ctx.send("Gagal memuat status.")
-
-@bot.command()
-async def fix(ctx):
-    try:
-        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
-        now = datetime.now(pytz.timezone('Asia/Jakarta'))
-        hari = now.strftime('%A').lower()
-        embed = discord.Embed(title="⚔️ SCHEDULE FIX BOSS TODAY", color=discord.Color.red())
-        for row in res.get('fix', [])[3:]:
-            if row[0] and hari in row[0].lower():
-                embed.add_field(name=f"{row[2]}", value=f"🇮🇩 {row[1]} WIB | 🇵🇭 {get_pht(row[1].split('/')[0].strip())} PHT", inline=False)
-        await ctx.send(embed=embed)
-    except: await ctx.send("Gagal memuat jadwal Fix.")
+    except: await ctx.send("Gagal memuat status. Pastikan link Web App Anda sudah 'Anyone' dan format di Sheet benar.")
 
 @bot.event
 async def on_ready():
