@@ -1,10 +1,11 @@
 import discord, requests, os, pytz
 from discord.ext import commands, tasks
-from datetime import datetime
+from datetime import datetime, timedelta
 
 TOKEN = os.environ.get('TOKEN')
 SHEET_URL = os.environ.get('SHEET_URL')
 CHANNEL_ID = int(os.environ.get('CHANNEL_ID'))
+OFFSET_MINUTES = 13 # Penyesuaian selisih waktu
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -20,11 +21,20 @@ class BossView(discord.ui.View):
     def __init__(self, boss_name):
         super().__init__(timeout=None)
         self.boss_name = boss_name
+    
     @discord.ui.button(label="Boss Mati ✅", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(pytz.timezone('Asia/Jakarta')).strftime('%H:%M')
-        requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib})
-        await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati.", ephemeral=True)
+        payload = {
+            "bossName": self.boss_name, 
+            "newTime": now_wib,
+            "user": interaction.user.name
+        }
+        try:
+            requests.post(SHEET_URL, json=payload)
+            await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati oleh {interaction.user.name}.", ephemeral=False)
+        except Exception as e:
+            await interaction.response.send_message("Gagal mencatat ke server.", ephemeral=True)
 
 @tasks.loop(minutes=1)
 async def check_boss_timer():
@@ -34,18 +44,21 @@ async def check_boss_timer():
         channel = bot.get_channel(CHANNEL_ID)
         hari = now.strftime('%A').lower()
 
-        # 1. Cek Interval Boss
+        # 1. Cek Interval Boss dengan Offset
         for row in res.get('interval', [])[1:]:
             if not row[0] or not row[4] or "#" in str(row[4]): continue
             try:
                 spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
-                diff = (spawn_dt - now).total_seconds() / 60
+                # Memasukkan offset 13 menit ke dalam perhitungan spawn
+                adjusted_spawn = spawn_dt - timedelta(minutes=OFFSET_MINUTES)
+                diff = (adjusted_spawn - now).total_seconds() / 60
+                
                 if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
                 elif 4.5 <= diff <= 5.5: await channel.send(f"@everyone⚠️ **5 Minutes left** for {row[0]}!")
                 elif 9.5 <= diff <= 10.5: await channel.send(f"@everyone⚠️ **10 Minutes left** for {row[0]}!")
             except: continue
 
-        # 2. Cek Fix Boss (Dengan Notifikasi 10m/5m)
+        # 2. Cek Fix Boss
         for row in res.get('fix', [])[4:]:
             if row[0] and hari in row[0].lower():
                 try:
@@ -68,8 +81,9 @@ async def status(ctx):
             if row[0] and row[4] and "#" not in str(row[4]):
                 spawn_dt = datetime.strptime(row[4], "%d/%m/%Y %H:%M").replace(tzinfo=pytz.timezone('Asia/Jakarta'))
                 diff = int((spawn_dt - now).total_seconds())
+                killer = f"\n💀 Terakhir oleh: {row[5]}" if len(row) > 5 and row[5] else ""
                 countdown = "🔴 Spawn/Mati" if diff < 0 else f"⏳ {diff // 3600}j {(diff % 3600) // 60}m lagi"
-                embed.add_field(name=row[0], value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}", inline=False)
+                embed.add_field(name=row[0], value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}{killer}", inline=False)
         await ctx.send(embed=embed)
     except: await ctx.send("Gagal memuat status.")
 
