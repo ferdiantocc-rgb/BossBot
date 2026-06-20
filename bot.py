@@ -29,6 +29,7 @@ class BossView(discord.ui.View):
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     try:
+        # Menarik data dengan cache-buster
         response = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15)
         if response.status_code != 200: return
         res = response.json()
