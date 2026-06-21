@@ -117,12 +117,18 @@ async def status(ctx):
 @bot.command()
 async def fixlist(ctx):
     try:
+        now = datetime.now(WIB)
+        current_day = now.strftime("%A")
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
-        pesan = "📅 **Jadwal Fix Boss:**\n"
+        pesan = f"📅 **Jadwal Fix Boss Hari Ini ({current_day}):**\n"
+        found = False
         for row in data:
-            if len(row) >= 3: pesan += f"- {row[0]} | {row[1]} | **{row[2]}**\n"
+            if len(row) >= 3 and current_day.lower() in row[0].lower():
+                pesan += f"- {row[1]} | **{row[2]}**\n"
+                found = True
+        if not found: pesan += "Tidak ada jadwal untuk hari ini."
         await ctx.send(pesan)
-    except Exception as e: await ctx.send(f"❌ Gagal mengambil list: {e}")
+    except Exception as e: await ctx.send(f"❌ Gagal: {e}")
 
 @bot.event
 async def on_ready():
