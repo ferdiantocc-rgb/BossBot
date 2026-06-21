@@ -35,22 +35,23 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- FUNGSI DATABASE ---
+# --- DATABASE ---
 def simpan_db():
-    data = {"channel_id": CHANNEL_ID, "boss_aktif": {k: v.isoformat() for k, v in boss_aktif.items()}}
-    with open(DB_FILE, 'w') as f: json.dump(data, f)
-    try: sheet_db.update('A2', [[json.dumps(data)]])
-    except: pass
+    try:
+        data = {"channel_id": CHANNEL_ID, "boss_aktif": {k: v.isoformat() for k, v in boss_aktif.items()}}
+        with open(DB_FILE, 'w') as f: json.dump(data, f)
+        sheet_db.update('A2', [[json.dumps(data)]])
+    except Exception as e: print(f"Gagal simpan DB: {e}")
 
 def muat_db():
     global CHANNEL_ID, boss_aktif
     if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r') as f:
-            try:
+        try:
+            with open(DB_FILE, 'r') as f:
                 data = json.load(f)
-                CHANNEL_ID = data.get("channel_id")
+                CHANNEL_ID = data.get("channel_id", CHANNEL_ID)
                 boss_aktif = {k: datetime.fromisoformat(v) for k, v in data.get("boss_aktif", {}).items()}
-            except: pass
+        except: pass
 
 # --- MONITORING ---
 @tasks.loop(minutes=1)
@@ -61,6 +62,7 @@ async def monitor_boss():
     
     for boss, spawn_time in boss_aktif.items():
         time_left = (spawn_time - now).total_seconds() / 60
+        # Notif 10 & 5 menit
         if 9.5 < time_left < 10.5 and boss not in sent_notifications.get('10', []):
             if channel: await channel.send(f"@everyone ⚠️ Boss **{boss}** spawn dalam 10 menit!")
             sent_notifications.setdefault('10', []).append(boss)
@@ -72,9 +74,8 @@ async def monitor_boss():
             to_remove.append(boss)
             
     for boss in to_remove:
-        del boss_aktif[boss]
-        for key in sent_notifications:
-            if boss in sent_notifications[key]: sent_notifications[key].remove(boss)
+        if boss in boss_aktif: del boss_aktif[boss]
+    if to_remove: simpan_db()
 
 @tasks.loop(minutes=1)
 async def monitor_fix_boss():
@@ -85,7 +86,8 @@ async def monitor_fix_boss():
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         for row in data:
             if len(row) >= 3 and current_day.lower() in row[0].lower():
-                if row[1].strip() == current_time:
+                # Membandingkan jam langsung
+                if row[1].split('/')[0].strip() == current_time:
                     channel = bot.get_channel(CHANNEL_ID)
                     if channel: await channel.send(f"@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **{row[2]}**")
     except Exception as e: print(f"Error Fix Boss: {e}")
