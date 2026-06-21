@@ -52,7 +52,7 @@ def muat_db():
                 boss_aktif = {k: datetime.fromisoformat(v) for k, v in data.get("boss_aktif", {}).items()}
             except: pass
 
-# --- TASKS MONITORING ---
+# --- MONITORING ---
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -82,13 +82,12 @@ async def monitor_fix_boss():
     current_day = now.strftime("%A")
     current_time = now.strftime("%H:%M")
     try:
-        data = client.open("Master Boss timer").worksheet("fix").get_all_records()
+        data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         for row in data:
-            if current_day.lower() in str(row['Hari']).lower():
-                raw_time = str(row['TIME']).split('/')[0].strip()
-                if raw_time == current_time:
+            if len(row) >= 3 and current_day.lower() in row[0].lower():
+                if row[1].strip() == current_time:
                     channel = bot.get_channel(CHANNEL_ID)
-                    if channel: await channel.send(f"@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **{row['Boss']}**")
+                    if channel: await channel.send(f"@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **{row[2]}**")
     except Exception as e: print(f"Error Fix Boss: {e}")
 
 # --- COMMANDS ---
@@ -106,7 +105,7 @@ async def startboss(ctx, nama_boss: str, menit: int):
 @bot.command()
 async def status(ctx):
     if not boss_aktif:
-        await ctx.send("✅ Tidak ada boss yang sedang dipantau saat ini.")
+        await ctx.send("✅ Tidak ada boss yang sedang dipantau.")
         return
     pesan = "⏳ **Daftar Boss yang dipantau:**\n"
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -118,12 +117,12 @@ async def status(ctx):
 @bot.command()
 async def fixlist(ctx):
     try:
-        data = client.open("Master Boss timer").worksheet("fix").get_all_records()
+        data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         pesan = "📅 **Jadwal Fix Boss:**\n"
         for row in data:
-            pesan += f"- {row['Hari']} | {row['TIME']} | **{row['Boss']}**\n"
+            if len(row) >= 3: pesan += f"- {row[0]} | {row[1]} | **{row[2]}**\n"
         await ctx.send(pesan)
-    except Exception as e: await ctx.send(f"❌ Gagal: {e}")
+    except Exception as e: await ctx.send(f"❌ Gagal mengambil list: {e}")
 
 @bot.event
 async def on_ready():
