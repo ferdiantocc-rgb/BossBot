@@ -6,61 +6,26 @@ from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- KONFIGURASI (DENGAN PENGECEKAN) ---
+# --- KONFIGURASI ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-if not TOKEN:
-    print("❌ ERROR: DISCORD_TOKEN tidak ditemukan di environment variables!")
-    exit(1)
-
-DB_FILE = 'database.json'
+CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
 WIB = timezone(timedelta(hours=7))
 
 # --- SETUP GOOGLE SHEETS ---
-try:
-    creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    sheet_db = client.open("Master Boss timer").worksheet("database_backup")
-except Exception as e:
-    print(f"❌ ERROR Google Sheets: {e}")
-
-# --- DATA BOSS ---
-DATA_BOSS = {
-    "Venatus": 10, "Viorent": 10, "LadyDalia": 18, "Ego": 21, "Shuliar": 35, 
-    "Larba": 35, "Catena": 35, "Livera": 24, "Undomiel": 24, "Araneo": 24, 
-    "Wannitas": 48, "Metus": 48, "Duplican": 48, "BaronBraudmore": 32, 
-    "Gareth": 32, "Amentis": 29, "Titore": 37, "GeneralAquleus": 29,
-    "Ordo": 62, "Asta": 62, "Secreta": 62, "Supore": 62,
-}
-
-boss_aktif = {}
-sent_notifications = {}
-CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
+creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(creds)
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- FUNGSI DB ---
-def simpan_db():
-    try:
-        data = {"channel_id": CHANNEL_ID, "boss_aktif": {k: v.isoformat() for k, v in boss_aktif.items()}}
-        with open(DB_FILE, 'w') as f: json.dump(data, f)
-        sheet_db.update('A2', [[json.dumps(data)]])
-    except Exception as e: print(f"Gagal simpan DB: {e}")
+# --- VARIABEL GLOBAL ---
+boss_aktif = {}
+sent_notifications = {}
 
-def muat_db():
-    global CHANNEL_ID, boss_aktif
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, 'r') as f:
-                data = json.load(f)
-                CHANNEL_ID = data.get("channel_id", CHANNEL_ID)
-                boss_aktif = {k: datetime.fromisoformat(v) for k, v in data.get("boss_aktif", {}).items()}
-        except: pass
-
-# --- MONITORING ---
+# --- MONITORING (TASKS) ---
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -81,7 +46,6 @@ async def monitor_boss():
             
     for boss in to_remove:
         if boss in boss_aktif: del boss_aktif[boss]
-    if to_remove: simpan_db()
 
 @tasks.loop(minutes=1)
 async def monitor_fix_boss():
@@ -89,6 +53,7 @@ async def monitor_fix_boss():
     current_day = now.strftime("%A")
     current_time = now.strftime("%H:%M")
     try:
+        # Mengambil data langsung tanpa header
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         for row in data:
             if len(row) >= 3 and current_day.lower() in row[0].lower():
@@ -99,27 +64,21 @@ async def monitor_fix_boss():
 
 # --- COMMANDS ---
 @bot.command()
-async def startboss(ctx, nama_boss: str, menit: int):
-    global CHANNEL_ID
-    CHANNEL_ID = ctx.channel.id
-    nama_resmi = next((b for b in DATA_BOSS if b.lower() == nama_boss.lower()), None)
-    if nama_resmi:
-        boss_aktif[nama_resmi] = datetime.now(WIB) + timedelta(minutes=menit)
-        simpan_db()
-        await ctx.send(f"✅ Pengingat **{nama_resmi}** disetel ({menit} menit lagi).")
-    else: await ctx.send("❌ Boss tidak ditemukan.")
+async def startboss(ctx, nama: str, menit: int):
+    waktu_target = datetime.now(WIB) + timedelta(minutes=menit)
+    boss_aktif[nama.lower()] = waktu_target
+    await ctx.send(f"✅ Pengingat **{nama}** disetel ({menit} menit lagi).")
 
 @bot.command()
 async def status(ctx):
-    muat_db() # Paksa reload dari DB sebelum menampilkan
     if not boss_aktif:
         await ctx.send("✅ Tidak ada boss yang sedang dipantau.")
         return
-    pesan = "⏳ **Daftar Boss yang dipantau:**\n"
+    pesan = "⏳ **Daftar Boss dipantau:**\n"
     now = datetime.now(WIB).replace(tzinfo=None)
-    for boss, spawn_time in boss_aktif.items():
-        menit = int((spawn_time - now).total_seconds() / 60)
-        pesan += f"- **{boss}**: {max(0, menit)} menit lagi\n"
+    for nama, waktu in boss_aktif.items():
+        sisa = int((waktu - now).total_seconds() / 60)
+        pesan += f"- **{nama.capitalize()}**: {max(0, sisa)} menit lagi\n"
     await ctx.send(pesan)
 
 @bot.command()
@@ -127,6 +86,7 @@ async def fixlist(ctx):
     try:
         now = datetime.now(WIB)
         current_day = now.strftime("%A")
+        # Mengambil data dari baris 4 sampai 35 tanpa memproses header
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         pesan = f"📅 **Jadwal Fix Boss Hari Ini ({current_day}):**\n"
         found = False
@@ -140,7 +100,6 @@ async def fixlist(ctx):
 
 @bot.event
 async def on_ready():
-    muat_db()
     monitor_boss.start()
     monitor_fix_boss.start()
     print(f'✅ Bot Ready: {bot.user}')
