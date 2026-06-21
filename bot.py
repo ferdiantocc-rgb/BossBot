@@ -1,6 +1,5 @@
 import discord
-from discord.ext import commands, tasks
-import asyncio
+from discord.ext import commands
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -12,9 +11,11 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 DB_FILE = 'database.json'
 WIB = timezone(timedelta(hours=7))
 
-# --- SETUP GOOGLE SHEETS ---
+# --- SETUP GOOGLE SHEETS (DARI RAILWAY VARIABLE) ---
+# Pastikan Anda sudah mengisi GOOGLE_CREDENTIALS di Railway Variables
+creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Master Boss timer").worksheet("database_backup")
 
@@ -27,23 +28,21 @@ DATA_BOSS = {
     "Ordo": 62, "Asta": 62, "Secreta": 62, "Supore": 62,
 }
 
-# --- VARIABEL GLOBAL ---
 boss_aktif = {}
-sent_notifications = {}
 CHANNEL_ID = None
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- FUNGSI BACKUP GOOGLE ---
+# --- FUNGSI BACKUP ---
 def backup_ke_sheets():
     try:
         with open(DB_FILE, 'r') as f:
             data_string = f.read()
         sheet.update('A2', [[data_string]])
     except Exception as e:
-        print(f"Gagal backup ke Sheets: {e}")
+        print(f"Gagal backup: {e}")
 
 def ambil_dari_sheets():
     try:
@@ -54,7 +53,7 @@ def ambil_dari_sheets():
     except Exception as e:
         print(f"Gagal ambil dari Sheets: {e}")
 
-# --- FUNGSI DATABASE LOKAL ---
+# --- LOGIKA DATABASE ---
 def simpan_db():
     data = {
         "channel_id": CHANNEL_ID,
@@ -62,7 +61,7 @@ def simpan_db():
     }
     with open(DB_FILE, 'w') as f:
         json.dump(data, f)
-    backup_ke_sheets() # Simpan juga ke Sheets
+    backup_ke_sheets()
 
 def muat_db():
     global CHANNEL_ID, boss_aktif
@@ -74,11 +73,9 @@ def muat_db():
                 boss_aktif = {k: datetime.fromisoformat(v) for k, v in data.get("boss_aktif", {}).items()}
         except: pass
 
-# --- LOGIKA BOT (Sama seperti sebelumnya) ---
 @bot.event
 async def on_ready():
-    if not os.path.exists(DB_FILE):
-        ambil_dari_sheets() # Ambil dari "Lemari Besi" jika file lokal hilang
+    ambil_dari_sheets() # Pastikan data terbaru dari Sheets saat startup
     muat_db()
     print(f'✅ Bot Ready: {bot.user}')
 
@@ -92,12 +89,10 @@ async def startboss(ctx, nama_boss: str):
         def check(m): return m.author == ctx.author and m.content.isdigit()
         try:
             msg = await bot.wait_for('message', check=check, timeout=30.0)
-            boss_aktif[nama_resmi] = datetime.now(WIB).replace(tzinfo=None) + timedelta(minutes=int(msg.content))
+            boss_aktif[nama_resmi] = datetime.now(WIB) + timedelta(minutes=int(msg.content))
             simpan_db()
             await ctx.send(f"✅ Pengingat **{nama_resmi}** disetel.")
         except: await ctx.send("❌ Input tidak valid.")
     else: await ctx.send("❌ Boss tidak ditemukan.")
-
-# ... (Tambahkan fungsi monitor_boss dan command lainnya dari kode Anda sebelumnya)
 
 bot.run(TOKEN)
