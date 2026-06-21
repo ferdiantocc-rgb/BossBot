@@ -12,12 +12,14 @@ CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
 WIB = timezone(timedelta(hours=7))
 DATA_FILE = "boss_data.json"
 
+# DURASI DALAM MENIT
 DURASI_BOSS = {
-    "venatus": 10, "viorent": 10, "ladydalia": 18, "ego": 21, "shuliar": 35, 
-    "larba": 35, "catena": 35, "livera": 24, "undomiel": 24, "araneo": 24, 
-    "wannitas": 48, "metus": 48, "duplican": 48, "baronbraudmore": 32, 
-    "gareth": 32, "amentis": 29, "titore": 37, "generalaquleus": 29,
-    "ordo": 62, "asta": 62, "secreta": 62, "supore": 62
+    "venatus": 600, "viorent": 600, "ladydalia": 1080, "ego": 1260,
+    "shuliar": 2100, "larba": 2100, "catena": 2100, "livera": 1440,
+    "undomiel": 1440, "araneo": 1440, "wannitas": 2880, "metus": 2880,
+    "duplican": 2880, "baronbraudmore": 1920, "gareth": 1920, "amentis": 1740,
+    "titore": 2220, "generalaquleus": 1740, "ordo": 3720, "asta": 3720,
+    "secreta": 3720, "supore": 3720
 }
 
 # --- SETUP ---
@@ -30,24 +32,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- TOMBOL BOSS MATI ---
-class BossDoneView(discord.ui.View):
-    def __init__(self, nama_boss):
-        super().__init__(timeout=None)
-        self.nama_boss = nama_boss
+notifikasi_sent = {}
 
-    @discord.ui.button(label="✅ Boss Sudah Mati", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        durasi = DURASI_BOSS.get(self.nama_boss.lower(), 10)
-        data = muat_data()
-        data[self.nama_boss.lower()] = (datetime.now(WIB) + timedelta(minutes=durasi)).isoformat()
-        simpan_data(data)
-        
-        await interaction.response.send_message(f"✅ Reset countdown untuk **{self.nama_boss.capitalize()}** ({durasi} menit lagi).", ephemeral=False)
-        button.disabled = True
-        await interaction.message.edit(view=self)
-
-# --- FUNGSI DATA ---
 def simpan_data(data):
     with open(DATA_FILE, "w") as f: json.dump(data, f)
 
@@ -58,7 +44,23 @@ def muat_data():
         except: return {}
     return {}
 
-# --- MONITORING ---
+# --- VIEW TOMBOL ---
+class BossDoneView(discord.ui.View):
+    def __init__(self, nama_boss):
+        super().__init__(timeout=None)
+        self.nama_boss = nama_boss
+
+    @discord.ui.button(label="✅ Boss Sudah Mati", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        menit_durasi = DURASI_BOSS.get(self.nama_boss.lower(), 60)
+        data = muat_data()
+        data[self.nama_boss.lower()] = (datetime.now(WIB) + timedelta(minutes=menit_durasi)).isoformat()
+        simpan_data(data)
+        await interaction.response.send_message(f"✅ {self.nama_boss.capitalize()} di-reset ({menit_durasi} menit lagi).")
+        button.disabled = True
+        await interaction.message.edit(view=self)
+
+# --- TASKS ---
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -68,15 +70,41 @@ async def monitor_boss():
     
     for boss, spawn_str in data.items():
         spawn_time = datetime.fromisoformat(spawn_str).replace(tzinfo=None)
-        if spawn_time <= now:
-            # Kirim pesan dengan tombol
+        sisa = int((spawn_time - now).total_seconds() / 60)
+        
+        if boss not in notifikasi_sent: notifikasi_sent[boss] = {"10": False, "5": False}
+        
+        # Peringatan 10 & 5 menit
+        if sisa == 10 and not notifikasi_sent[boss]["10"]:
+            if channel: await channel.send("@everyone ⚠️ Boss **" + boss.capitalize() + "** spawn dalam 10 menit!", allowed_mentions=discord.AllowedMentions.all())
+            notifikasi_sent[boss]["10"] = True
+        elif sisa == 5 and not notifikasi_sent[boss]["5"]:
+            if channel: await channel.send("@everyone ⚠️ Boss **" + boss.capitalize() + "** spawn dalam 5 menit!", allowed_mentions=discord.AllowedMentions.all())
+            notifikasi_sent[boss]["5"] = True
+        elif sisa <= 0:
             view = BossDoneView(boss)
-            if channel: 
-                await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn! Klik tombol di bawah jika sudah mati.", view=view)
+            if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn! Klik jika sudah mati.", view=view)
             to_remove.append(boss)
-    
+            if boss in notifikasi_sent: del notifikasi_sent[boss]
+            
     for boss in to_remove: del data[boss]
     if to_remove: simpan_data(data)
+
+@tasks.loop(minutes=1)
+async def monitor_fix_boss():
+    now = datetime.now(WIB)
+    current_day = now.strftime("%A")
+    current_time = now.strftime("%H:%M")
+    try:
+        data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
+        for row in data:
+            if len(row) >= 3 and current_day.lower() in row[0].lower():
+                if row[1].split('/')[0].strip() == current_time:
+                    channel = bot.get_channel(CHANNEL_ID)
+                    if channel: 
+                        # Ping @everyone di fix boss
+                        await channel.send("@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **" + row[2] + "**", allowed_mentions=discord.AllowedMentions.all())
+    except: pass
 
 # --- COMMANDS ---
 @bot.command()
@@ -84,28 +112,44 @@ async def startboss(ctx, nama: str, menit: int):
     data = muat_data()
     data[nama.lower()] = (datetime.now(WIB) + timedelta(minutes=menit)).isoformat()
     simpan_data(data)
-    await ctx.send(f"✅ Pengingat **{nama}** disetel ({menit} menit lagi).")
+    await ctx.send(f"✅ Pengingat **{nama.capitalize()}** disetel ({menit} menit lagi).")
 
 @bot.command()
 async def status(ctx):
     data = muat_data()
-    if not data:
-        await ctx.send("✅ Tidak ada boss yang sedang dipantau.")
-        return
-    now_wib = datetime.now(WIB).replace(tzinfo=None)
-    pesan = "⚔️ **JADWAL BOSS**\n"
-    for nama, waktu_str in data.items():
-        waktu_spawn = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
-        sisa = int((waktu_spawn - now_wib).total_seconds() / 60)
-        if sisa < 0: continue
-        waktu_wib = waktu_spawn.strftime("%H:%M")
-        waktu_pht = (waktu_spawn + timedelta(hours=1)).strftime("%H:%M")
-        pesan += f"**{nama.capitalize()}**\n  > 🇮🇩 {waktu_wib} WIB | 🇵🇭 {waktu_pht} PHT\n  > ⏳ {sisa}m lagi\n"
-    await ctx.send(pesan)
+    if not data: await ctx.send("✅ Tidak ada boss yang dipantau.")
+    else:
+        now = datetime.now(WIB).replace(tzinfo=None)
+        pesan = "⚔️ **JADWAL BOSS**\n"
+        for nama, waktu_str in data.items():
+            spawn = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
+            sisa = int((spawn - now).total_seconds() / 60)
+            if sisa < 0: continue
+            pesan += f"**{nama.capitalize()}** | ⏳ {sisa}m lagi\n"
+        await ctx.send(pesan)
+
+@bot.command()
+async def fixlist(ctx):
+    try:
+        now = datetime.now(WIB)
+        current_day = now.strftime("%A")
+        sheet = client.open("Master Boss timer").worksheet("fix")
+        data = sheet.get_values("A4:C35")
+        pesan = f"📅 **Jadwal Fix ({current_day}):**\n"
+        found = False
+        for row in data:
+            if len(row) >= 3 and current_day.lower() in row[0].lower():
+                jam_wib = row[1].split('/')[0].strip()
+                jam_pht = (datetime.strptime(jam_wib, "%H:%M") + timedelta(hours=1)).strftime("%H:%M")
+                pesan += f"• **{row[2]}**\n  └ 🇮🇩 {jam_wib} WIB | 🇵🇭 {jam_pht} PHT\n"
+                found = True
+        await ctx.send(pesan if found else "Tidak ada jadwal fix hari ini.")
+    except Exception as e: await ctx.send(f"❌ Error: {e}")
 
 @bot.event
 async def on_ready():
     monitor_boss.start()
+    monitor_fix_boss.start()
     print(f'✅ Bot Ready: {bot.user}')
 
 bot.run(TOKEN)
