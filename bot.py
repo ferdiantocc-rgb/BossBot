@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- KONFIGURASI ---
 TOKEN = os.getenv('DISCORD_TOKEN')
 CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
 WIB = timezone(timedelta(hours=7))
@@ -43,7 +42,8 @@ def muat_data():
         with open(DATA_FILE, "r") as f: return json.load(f)
     except: return {}
 
-def format_waktu(menit_total):
+def format_countdown(menit_total):
+    menit_total = max(0, menit_total)
     jam = menit_total // 60
     mnt = menit_total % 60
     return f"{jam}j {mnt}m" if jam > 0 else f"{mnt}m"
@@ -65,7 +65,6 @@ async def monitor_boss():
         elif sisa <= 0:
             if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn!")
             to_remove.append(boss)
-            if boss in notifikasi_sent: del notifikasi_sent[boss]
     for boss in to_remove: del data[boss]
     if to_remove: simpan_data(data)
 
@@ -100,12 +99,13 @@ async def status(ctx):
     if not data: await ctx.send("✅ Tidak ada boss yang dipantau.")
     else:
         now = datetime.now(WIB).replace(tzinfo=None)
-        pesan = "⚔️ **JADWAL BOSS**\n```fix\n"
+        pesan = "⚔️ **JADWAL BOSS**\n"
         for nama, waktu_str in data.items():
             spawn = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
+            w_wib = spawn.strftime("%H:%M")
+            w_pht = (spawn + timedelta(hours=1)).strftime("%H:%M")
             diff = int((spawn - now).total_seconds() / 60)
-            pesan += f"{nama.capitalize():<12} | ⏳ {format_waktu(max(0, diff))} lagi\n"
-        pesan += "```"
+            pesan += f"\n**{nama.capitalize()}**\n > 🇮🇩 {w_wib} WIB | 🇵🇭 {w_pht} PHT\n > ⏳ {format_countdown(diff)} lagi\n"
         await ctx.send(pesan)
 
 @bot.command()
@@ -115,13 +115,15 @@ async def fixlist(ctx):
         current_day = now.strftime("%A")
         sheet = client.open("Master Boss timer").worksheet("fix")
         data = sheet.get_values("A4:C35")
-        pesan = f"📅 **Jadwal Fix ({current_day}):**\n```fix\n"
+        pesan = f"📅 **Jadwal Fix ({current_day}):**\n"
         found = False
         for row in data:
             if len(row) >= 3 and current_day.lower() in row[0].lower():
-                pesan += f"• {row[2]:<12} | 🇮🇩 {row[1].split('/')[0].strip()}\n"
+                w_wib = row[1].split('/')[0].strip()
+                w_pht = (datetime.strptime(w_wib, "%H:%M") + timedelta(hours=1)).strftime("%H:%M")
+                pesan += f"• **{row[2]}**\n  > 🇮🇩 {w_wib} WIB | 🇵🇭 {w_pht} PHT\n"
                 found = True
-        await ctx.send((pesan + "```") if found else "Tidak ada jadwal fix hari ini.")
+        await ctx.send(pesan if found else "Tidak ada jadwal fix hari ini.")
     except Exception as e: await ctx.send(f"❌ Error: {e}")
 
 @bot.event
