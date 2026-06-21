@@ -7,73 +7,73 @@ SHEET_URL = os.environ.get('SHEET_URL')
 CHANNEL_ID = int(os.environ.get('CHANNEL_ID'))
 WIB = pytz.timezone('Asia/Jakarta')
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-def get_pht(wib_str):
-    try:
-        h, m = map(int, wib_str.split(':'))
-        return f"{(h + 1) % 24:02d}:{m:02d}"
-    except: return "--:--"
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 
 class BossView(discord.ui.View):
     def __init__(self, boss_name):
         super().__init__(timeout=None)
         self.boss_name = boss_name
-    
     @discord.ui.button(label="Boss Mati ✅", style=discord.ButtonStyle.danger)
     async def confirm_death(self, interaction: discord.Interaction, button: discord.ui.Button):
         now_wib = datetime.now(WIB).strftime('%H:%M')
-        payload = {"bossName": self.boss_name, "newTime": now_wib, "user": interaction.user.name}
-        try:
-            # Menggunakan cache buster pada POST jika diperlukan atau biarkan standard
-            requests.post(SHEET_URL, json=payload)
-            await interaction.response.send_message(f"✅ {self.boss_name} tercatat mati oleh {interaction.user.name}.", ephemeral=False)
-        except: await interaction.response.send_message("Gagal koneksi.", ephemeral=True)
+        requests.post(SHEET_URL, json={"bossName": self.boss_name, "newTime": now_wib, "user": interaction.user.name})
+        await interaction.response.send_message(f"✅ {self.boss_name} mati oleh {interaction.user.name}.", ephemeral=True)
 
 @tasks.loop(minutes=1)
 async def check_boss_timer():
     try:
-        # Menambahkan time.time() agar data selalu fresh (anti-cache)
-        res = requests.get(f"{SHEET_URL}&t={time.time()}", timeout=15).json()
+        res = requests.get(f"{SHEET_URL}?t={time.time()}", timeout=15).json()
         now = datetime.now(WIB)
         channel = bot.get_channel(CHANNEL_ID)
         hari = now.strftime('%A').lower()
 
-        # 1. Cek Interval Boss
+        # 1. Notifikasi Interval Boss
         for row in res.get('interval', [])[1:]:
-            if not row[0] or not row[4] or "#" in str(row[4]): continue
-            try:
-                # Membaca data langsung dari kolom E (row[4])
-                spawn_dt = datetime.strptime(row[4].strip(), "%d/%m/%Y %H:%M").replace(tzinfo=WIB)
-                diff = (spawn_dt - now).total_seconds() / 60
-                
-                if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
-                elif 4.5 <= diff <= 5.5: await channel.send(f"@everyone ⚠️ **5 Minutes left** for {row[0]}!")
-                elif 9.5 <= diff <= 10.5: await channel.send(f"@everyone ⚠️ **10 Minutes left** for {row[0]}!")
-            except: continue
+            if not row[0] or not row[4]: continue
+            spawn_dt = datetime.strptime(str(row[4]), "%d/%m/%Y %H:%M").replace(tzinfo=WIB)
+            diff = (spawn_dt - now).total_seconds() / 60
+            if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
+            elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5m left** for {row[0]}!")
+            elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10m left** for {row[0]}!")
+
+        # 2. Notifikasi FIX BOSS (BAGIAN YANG HILANG SEBELUMNYA)
+        for row in res.get('fix', [])[4:]:
+            if row[0] and hari in row[0].lower():
+                try:
+                    waktu = row[1].split('/')[0].strip()
+                    fix_dt = datetime.strptime(waktu, "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=WIB)
+                    diff = (fix_dt - now).total_seconds() / 60
+                    if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[2]} (Fix) SPAWNED!**")
+                    elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5m left** for {row[2]} (Fix)!")
+                    elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10m left** for {row[2]} (Fix)!")
+                except: continue
     except Exception as e: print(f"Loop Error: {e}")
 
 @bot.command()
 async def status(ctx):
     try:
-        res = requests.get(f"{SHEET_URL}&t={time.time()}").json()
-        now = datetime.now(WIB)
+        res = requests.get(f"{SHEET_URL}?t={time.time()}").json()
         embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
-            if row[0] and row[4] and "#" not in str(row[4]):
-                spawn_dt = datetime.strptime(row[4].strip(), "%d/%m/%Y %H:%M").replace(tzinfo=WIB)
-                diff_sec = int((spawn_dt - now).total_seconds())
-                killer = f"\n💀 Terakhir oleh: {row[5]}" if len(row) > 5 and row[5] else ""
-                countdown = "🔴 Spawn/Mati" if diff_sec < 0 else f"⏳ {diff_sec // 3600}j {(diff_sec % 3600) // 60}m lagi"
-                embed.add_field(name=row[0], value=f"🇮🇩 {row[3]} WIB | 🇵🇭 {get_pht(row[3])} PHT\n{countdown}{killer}", inline=False)
+            if row[0] and row[4]:
+                killer = f" | 💀 {row[5]}" if len(row) > 5 and row[5] else ""
+                embed.add_field(name=row[0], value=f"📅 {row[4]} WIB{killer}", inline=False)
         await ctx.send(embed=embed)
     except: await ctx.send("Gagal memuat status.")
 
+@bot.command()
+async def fix(ctx):
+    try:
+        res = requests.get(f"{SHEET_URL}?t={time.time()}").json()
+        embed = discord.Embed(title="⚔️ JADWAL BOSS FIX", color=discord.Color.red())
+        for row in res.get('fix', [])[4:]:
+            if row[0]: embed.add_field(name=f"{row[2]}", value=f"📅 {row[1]} WIB", inline=False)
+        await ctx.send(embed=embed)
+    except: await ctx.send("Gagal memuat jadwal Fix.")
+
 @bot.event
 async def on_ready():
-    if not check_boss_timer.is_running(): check_boss_timer.start()
+    check_boss_timer.start()
     print('Bot Ready!')
 
 bot.run(TOKEN)
