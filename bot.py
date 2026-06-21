@@ -10,6 +10,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 TOKEN = os.getenv('DISCORD_TOKEN')
 CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
 WIB = timezone(timedelta(hours=7))
+# Menggunakan path absolut agar file selalu terbaca
+DATA_FILE = os.path.join(os.getcwd(), "boss_data.json")
 
 # --- SETUP GOOGLE SHEETS ---
 creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
@@ -21,31 +23,39 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- VARIABEL GLOBAL ---
-boss_aktif = {}
-sent_notifications = {}
+# --- FUNGSI PERSISTENSI DATA ---
+def simpan_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
+
+def muat_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
 
 # --- MONITORING (TASKS) ---
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
+    data = muat_data()
     to_remove = []
     channel = bot.get_channel(CHANNEL_ID)
     
-    for boss, spawn_time in boss_aktif.items():
+    for boss, spawn_str in data.items():
+        spawn_time = datetime.fromisoformat(spawn_str).replace(tzinfo=None)
         time_left = (spawn_time - now).total_seconds() / 60
-        if 9.5 < time_left < 10.5 and boss not in sent_notifications.get('10', []):
-            if channel: await channel.send(f"@everyone ⚠️ Boss **{boss}** spawn dalam 10 menit!")
-            sent_notifications.setdefault('10', []).append(boss)
-        elif 4.5 < time_left < 5.5 and boss not in sent_notifications.get('5', []):
-            if channel: await channel.send(f"@everyone ⚠️ Boss **{boss}** spawn dalam 5 menit!")
-            sent_notifications.setdefault('5', []).append(boss)
-        elif time_left <= 0:
-            if channel: await channel.send(f"⚔️ Boss **{boss}** sudah spawn!")
+        
+        if time_left <= 0:
+            if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn!")
             to_remove.append(boss)
             
     for boss in to_remove:
-        if boss in boss_aktif: del boss_aktif[boss]
+        del data[boss]
+    if to_remove: simpan_data(data)
 
 @tasks.loop(minutes=1)
 async def monitor_fix_boss():
@@ -53,7 +63,6 @@ async def monitor_fix_boss():
     current_day = now.strftime("%A")
     current_time = now.strftime("%H:%M")
     try:
-        # Mengambil data langsung tanpa header
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         for row in data:
             if len(row) >= 3 and current_day.lower() in row[0].lower():
@@ -65,20 +74,27 @@ async def monitor_fix_boss():
 # --- COMMANDS ---
 @bot.command()
 async def startboss(ctx, nama: str, menit: int):
-    waktu_target = datetime.now(WIB) + timedelta(minutes=menit)
-    boss_aktif[nama.lower()] = waktu_target
+    data = muat_data()
+    waktu_target = (datetime.now(WIB) + timedelta(minutes=menit)).isoformat()
+    data[nama.lower()] = waktu_target
+    simpan_data(data)
     await ctx.send(f"✅ Pengingat **{nama}** disetel ({menit} menit lagi).")
 
 @bot.command()
 async def status(ctx):
-    if not boss_aktif:
+    data = muat_data()
+    if not data:
         await ctx.send("✅ Tidak ada boss yang sedang dipantau.")
         return
+    
     pesan = "⏳ **Daftar Boss dipantau:**\n"
     now = datetime.now(WIB).replace(tzinfo=None)
-    for nama, waktu in boss_aktif.items():
+    
+    for nama, waktu_str in data.items():
+        waktu = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
         sisa = int((waktu - now).total_seconds() / 60)
         pesan += f"- **{nama.capitalize()}**: {max(0, sisa)} menit lagi\n"
+    
     await ctx.send(pesan)
 
 @bot.command()
@@ -86,7 +102,6 @@ async def fixlist(ctx):
     try:
         now = datetime.now(WIB)
         current_day = now.strftime("%A")
-        # Mengambil data dari baris 4 sampai 35 tanpa memproses header
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         pesan = f"📅 **Jadwal Fix Boss Hari Ini ({current_day}):**\n"
         found = False
