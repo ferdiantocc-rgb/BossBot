@@ -1,49 +1,103 @@
-import discord, requests, os, pytz, time
+import discord
 from discord.ext import commands, tasks
-from datetime import datetime
+import asyncio
+import json
+import os
+from datetime import datetime, timedelta, timezone
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-TOKEN = os.environ.get('TOKEN')
-SHEET_URL = os.environ.get('SHEET_URL')
-CHANNEL_ID = int(os.environ.get('CHANNEL_ID'))
-WIB = pytz.timezone('Asia/Jakarta')
+# --- KONFIGURASI ---
+TOKEN = os.getenv('DISCORD_TOKEN')
+DB_FILE = 'database.json'
+WIB = timezone(timedelta(hours=7))
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+# --- SETUP GOOGLE SHEETS ---
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+client = gspread.authorize(creds)
+sheet = client.open("Master Boss timer").worksheet("database_backup")
 
-# Fungsi untuk notifikasi boss
-@tasks.loop(minutes=1)
-async def check_boss_timer():
+# --- DATA BOSS ---
+DATA_BOSS = {
+    "Venatus": 10, "Viorent": 10, "LadyDalia": 18, "Ego": 21, "Shuliar": 35, 
+    "Larba": 35, "Catena": 35, "Livera": 24, "Undomiel": 24, "Araneo": 24, 
+    "Wannitas": 48, "Metus": 48, "Duplican": 48, "BaronBraudmore": 32, 
+    "Gareth": 32, "Amentis": 29, "Titore": 37, "GeneralAquleus": 29,
+    "Ordo": 62, "Asta": 62, "Secreta": 62, "Supore": 62,
+}
+
+# --- VARIABEL GLOBAL ---
+boss_aktif = {}
+sent_notifications = {}
+CHANNEL_ID = None
+
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# --- FUNGSI BACKUP GOOGLE ---
+def backup_ke_sheets():
     try:
-        # Cache buster "?t=" memastikan bot membaca data baru, bukan data lama
-        res = requests.get(f"{SHEET_URL}?t={time.time()}", timeout=15).json()
-        now = datetime.now(WIB)
-        channel = bot.get_channel(CHANNEL_ID)
-        
-        for row in res.get('interval', [])[1:]:
-            if not row[0] or not row[4] or "/" not in str(row[4]): continue
-            try:
-                # Mengubah teks dari Kolom E kembali jadi waktu
-                spawn_dt = datetime.strptime(str(row[4]).strip(), "%d/%m/%Y %H:%M").replace(tzinfo=WIB)
-                diff = (spawn_dt - now).total_seconds() / 60
-                
-                if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**")
-                elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5m left** for {row[0]}!")
-            except: continue
-    except: pass
+        with open(DB_FILE, 'r') as f:
+            data_string = f.read()
+        sheet.update('A2', [[data_string]])
+    except Exception as e:
+        print(f"Gagal backup ke Sheets: {e}")
 
-@bot.command()
-async def status(ctx):
+def ambil_dari_sheets():
     try:
-        res = requests.get(f"{SHEET_URL}?t={time.time()}").json()
-        embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
-        for row in res.get('interval', [])[1:]:
-            if row[0] and row[4] and "/" in str(row[4]):
-                embed.add_field(name=row[0], value=f"📅 {row[4]} WIB", inline=False)
-        await ctx.send(embed=embed)
-    except: await ctx.send("Gagal memuat status.")
+        data_string = sheet.acell('A2').value
+        if data_string:
+            with open(DB_FILE, 'w') as f:
+                f.write(data_string)
+    except Exception as e:
+        print(f"Gagal ambil dari Sheets: {e}")
 
+# --- FUNGSI DATABASE LOKAL ---
+def simpan_db():
+    data = {
+        "channel_id": CHANNEL_ID,
+        "boss_aktif": {k: v.isoformat() for k, v in boss_aktif.items()}
+    }
+    with open(DB_FILE, 'w') as f:
+        json.dump(data, f)
+    backup_ke_sheets() # Simpan juga ke Sheets
+
+def muat_db():
+    global CHANNEL_ID, boss_aktif
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, 'r') as f:
+                data = json.load(f)
+                CHANNEL_ID = data.get("channel_id")
+                boss_aktif = {k: datetime.fromisoformat(v) for k, v in data.get("boss_aktif", {}).items()}
+        except: pass
+
+# --- LOGIKA BOT (Sama seperti sebelumnya) ---
 @bot.event
 async def on_ready():
-    if not check_boss_timer.is_running(): check_boss_timer.start()
-    print('Bot Ready!')
+    if not os.path.exists(DB_FILE):
+        ambil_dari_sheets() # Ambil dari "Lemari Besi" jika file lokal hilang
+    muat_db()
+    print(f'✅ Bot Ready: {bot.user}')
+
+@bot.command()
+async def startboss(ctx, nama_boss: str):
+    global CHANNEL_ID
+    CHANNEL_ID = ctx.channel.id
+    nama_resmi = next((b for b in DATA_BOSS if b.lower() == nama_boss.lower()), None)
+    if nama_resmi:
+        await ctx.send(f"Berapa menit lagi **{nama_resmi}** spawn?")
+        def check(m): return m.author == ctx.author and m.content.isdigit()
+        try:
+            msg = await bot.wait_for('message', check=check, timeout=30.0)
+            boss_aktif[nama_resmi] = datetime.now(WIB).replace(tzinfo=None) + timedelta(minutes=int(msg.content))
+            simpan_db()
+            await ctx.send(f"✅ Pengingat **{nama_resmi}** disetel.")
+        except: await ctx.send("❌ Input tidak valid.")
+    else: await ctx.send("❌ Boss tidak ditemukan.")
+
+# ... (Tambahkan fungsi monitor_boss dan command lainnya dari kode Anda sebelumnya)
 
 bot.run(TOKEN)
