@@ -33,6 +33,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 notifikasi_sent = {}
+notifikasi_fix = {} # Pelacak untuk fix boss
 
 def simpan_data(data):
     with open(DATA_FILE, "w") as f: json.dump(data, f)
@@ -60,7 +61,7 @@ class BossDoneView(discord.ui.View):
         button.disabled = True
         await interaction.message.edit(view=self)
 
-# --- TASKS ---
+# --- TASKS MONITORING ---
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -74,7 +75,6 @@ async def monitor_boss():
         
         if boss not in notifikasi_sent: notifikasi_sent[boss] = {"10": False, "5": False}
         
-        # Peringatan 10 & 5 menit
         if sisa == 10 and not notifikasi_sent[boss]["10"]:
             if channel: await channel.send("@everyone ⚠️ Boss **" + boss.capitalize() + "** spawn dalam 10 menit!", allowed_mentions=discord.AllowedMentions.all())
             notifikasi_sent[boss]["10"] = True
@@ -94,17 +94,26 @@ async def monitor_boss():
 async def monitor_fix_boss():
     now = datetime.now(WIB)
     current_day = now.strftime("%A")
-    current_time = now.strftime("%H:%M")
+    channel = bot.get_channel(CHANNEL_ID)
     try:
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         for row in data:
             if len(row) >= 3 and current_day.lower() in row[0].lower():
-                if row[1].split('/')[0].strip() == current_time:
-                    channel = bot.get_channel(CHANNEL_ID)
-                    if channel: 
-                        # Ping @everyone di fix boss
-                        await channel.send("@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **" + row[2] + "**", allowed_mentions=discord.AllowedMentions.all())
-    except: pass
+                jam_fix = datetime.strptime(row[1].split('/')[0].strip(), "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=WIB)
+                sisa = int((jam_fix - now).total_seconds() / 60)
+                
+                boss_key = f"{row[2]}_{row[1]}" # ID unik untuk fix boss
+                if boss_key not in notifikasi_fix: notifikasi_fix[boss_key] = {"10": False, "5": False}
+                
+                if sisa == 10 and not notifikasi_fix[boss_key]["10"]:
+                    if channel: await channel.send(f"@everyone ⚠️ Fix Boss **{row[2]}** spawn dalam 10 menit!", allowed_mentions=discord.AllowedMentions.all())
+                    notifikasi_fix[boss_key]["10"] = True
+                elif sisa == 5 and not notifikasi_fix[boss_key]["5"]:
+                    if channel: await channel.send(f"@everyone ⚠️ Fix Boss **{row[2]}** spawn dalam 5 menit!", allowed_mentions=discord.AllowedMentions.all())
+                    notifikasi_fix[boss_key]["5"] = True
+                elif sisa == 0:
+                    if channel: await channel.send(f"@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **{row[2]}**", allowed_mentions=discord.AllowedMentions.all())
+    except Exception as e: print(f"Error monitor_fix_boss: {e}")
 
 # --- COMMANDS ---
 @bot.command()
@@ -123,9 +132,13 @@ async def status(ctx):
         pesan = "⚔️ **JADWAL BOSS**\n"
         for nama, waktu_str in data.items():
             spawn = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
-            sisa = int((spawn - now).total_seconds() / 60)
-            if sisa < 0: continue
-            pesan += f"**{nama.capitalize()}** | ⏳ {sisa}m lagi\n"
+            waktu_wib = spawn.strftime("%H:%M")
+            waktu_pht = (spawn + timedelta(hours=1)).strftime("%H:%M")
+            diff = spawn - now
+            days, rem = divmod(int(diff.total_seconds() / 60), 1440)
+            hours, minutes = divmod(rem, 60)
+            cd = f"{days}h {hours}j {minutes}m" if days > 0 else f"{hours}j {minutes}m"
+            pesan += f"**{nama.capitalize()}**\n  > 🇮🇩 {waktu_wib} WIB | 🇵🇭 {waktu_pht} PHT\n  > ⏳ {cd} lagi\n"
         await ctx.send(pesan)
 
 @bot.command()
