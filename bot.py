@@ -27,21 +27,20 @@ async def check_boss_timer():
         channel = bot.get_channel(CHANNEL_ID)
         hari = now.strftime('%A').lower()
 
-        # 1. Notifikasi Interval Boss
+        # Notifikasi Interval
         for row in res.get('interval', [])[1:]:
-            if not row[0] or not row[4]: continue
+            if not row[0] or not row[4] or "T" in str(row[4]): continue
             spawn_dt = datetime.strptime(str(row[4]), "%d/%m/%Y %H:%M").replace(tzinfo=WIB)
             diff = (spawn_dt - now).total_seconds() / 60
             if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[0]} SPAWNED!**", view=BossView(row[0]))
             elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5m left** for {row[0]}!")
             elif 9.5 <= diff <= 10.5: await channel.send(f"⚠️ **10m left** for {row[0]}!")
 
-        # 2. Notifikasi FIX BOSS (BAGIAN YANG HILANG SEBELUMNYA)
+        # Notifikasi Fix
         for row in res.get('fix', [])[4:]:
             if row[0] and hari in row[0].lower():
                 try:
-                    waktu = row[1].split('/')[0].strip()
-                    fix_dt = datetime.strptime(waktu, "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=WIB)
+                    fix_dt = datetime.strptime(row[1].split('/')[0].strip(), "%H:%M").replace(year=now.year, month=now.month, day=now.day, tzinfo=WIB)
                     diff = (fix_dt - now).total_seconds() / 60
                     if -0.5 <= diff <= 0.5: await channel.send(f"@everyone ⚔️ **{row[2]} (Fix) SPAWNED!**")
                     elif 4.5 <= diff <= 5.5: await channel.send(f"⚠️ **5m left** for {row[2]} (Fix)!")
@@ -55,7 +54,7 @@ async def status(ctx):
         res = requests.get(f"{SHEET_URL}?t={time.time()}").json()
         embed = discord.Embed(title="⚔️ JADWAL BOSS", color=discord.Color.gold())
         for row in res.get('interval', [])[1:]:
-            if row[0] and row[4]:
+            if row[0] and row[4] and "T" not in str(row[4]):
                 killer = f" | 💀 {row[5]}" if len(row) > 5 and row[5] else ""
                 embed.add_field(name=row[0], value=f"📅 {row[4]} WIB{killer}", inline=False)
         await ctx.send(embed=embed)
