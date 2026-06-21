@@ -6,17 +6,24 @@ from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- KONFIGURASI ---
+# --- KONFIGURASI (DENGAN PENGECEKAN) ---
 TOKEN = os.getenv('DISCORD_TOKEN')
+if not TOKEN:
+    print("❌ ERROR: DISCORD_TOKEN tidak ditemukan di environment variables!")
+    exit(1)
+
 DB_FILE = 'database.json'
 WIB = timezone(timedelta(hours=7))
 
 # --- SETUP GOOGLE SHEETS ---
-creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
-sheet_db = client.open("Master Boss timer").worksheet("database_backup")
+try:
+    creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    sheet_db = client.open("Master Boss timer").worksheet("database_backup")
+except Exception as e:
+    print(f"❌ ERROR Google Sheets: {e}")
 
 # --- DATA BOSS ---
 DATA_BOSS = {
@@ -35,7 +42,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- DATABASE ---
+# --- FUNGSI DB ---
 def simpan_db():
     try:
         data = {"channel_id": CHANNEL_ID, "boss_aktif": {k: v.isoformat() for k, v in boss_aktif.items()}}
@@ -62,7 +69,6 @@ async def monitor_boss():
     
     for boss, spawn_time in boss_aktif.items():
         time_left = (spawn_time - now).total_seconds() / 60
-        # Notif 10 & 5 menit
         if 9.5 < time_left < 10.5 and boss not in sent_notifications.get('10', []):
             if channel: await channel.send(f"@everyone ⚠️ Boss **{boss}** spawn dalam 10 menit!")
             sent_notifications.setdefault('10', []).append(boss)
@@ -86,7 +92,6 @@ async def monitor_fix_boss():
         data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
         for row in data:
             if len(row) >= 3 and current_day.lower() in row[0].lower():
-                # Membandingkan jam langsung
                 if row[1].split('/')[0].strip() == current_time:
                     channel = bot.get_channel(CHANNEL_ID)
                     if channel: await channel.send(f"@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **{row[2]}**")
@@ -106,6 +111,7 @@ async def startboss(ctx, nama_boss: str, menit: int):
 
 @bot.command()
 async def status(ctx):
+    muat_db() # Paksa reload dari DB sebelum menampilkan
     if not boss_aktif:
         await ctx.send("✅ Tidak ada boss yang sedang dipantau.")
         return
