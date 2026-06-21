@@ -10,8 +10,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 TOKEN = os.getenv('DISCORD_TOKEN')
 CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
 WIB = timezone(timedelta(hours=7))
-# Menggunakan path absolut agar file selalu terbaca
-DATA_FILE = os.path.join(os.getcwd(), "boss_data.json")
+DATA_FILE = "boss_data.json"
 
 # --- SETUP GOOGLE SHEETS ---
 creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
@@ -23,21 +22,20 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- FUNGSI PERSISTENSI DATA ---
+# --- FUNGSI PERSISTENSI ---
 def simpan_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
 def muat_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            try:
+        try:
+            with open(DATA_FILE, "r") as f:
                 return json.load(f)
-            except:
-                return {}
+        except: return {}
     return {}
 
-# --- MONITORING (TASKS) ---
+# --- MONITORING TASKS ---
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -47,14 +45,11 @@ async def monitor_boss():
     
     for boss, spawn_str in data.items():
         spawn_time = datetime.fromisoformat(spawn_str).replace(tzinfo=None)
-        time_left = (spawn_time - now).total_seconds() / 60
-        
-        if time_left <= 0:
+        if spawn_time <= now:
             if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn!")
             to_remove.append(boss)
             
-    for boss in to_remove:
-        del data[boss]
+    for boss in to_remove: del data[boss]
     if to_remove: simpan_data(data)
 
 @tasks.loop(minutes=1)
@@ -69,14 +64,13 @@ async def monitor_fix_boss():
                 if row[1].split('/')[0].strip() == current_time:
                     channel = bot.get_channel(CHANNEL_ID)
                     if channel: await channel.send(f"@everyone 📢 **FIX BOSS ALERT!** Sekarang spawn: **{row[2]}**")
-    except Exception as e: print(f"Error Fix Boss: {e}")
+    except Exception as e: print(f"Error Fix: {e}")
 
 # --- COMMANDS ---
 @bot.command()
 async def startboss(ctx, nama: str, menit: int):
     data = muat_data()
-    waktu_target = (datetime.now(WIB) + timedelta(minutes=menit)).isoformat()
-    data[nama.lower()] = waktu_target
+    data[nama.lower()] = (datetime.now(WIB) + timedelta(minutes=menit)).isoformat()
     simpan_data(data)
     await ctx.send(f"✅ Pengingat **{nama}** disetel ({menit} menit lagi).")
 
@@ -87,14 +81,20 @@ async def status(ctx):
         await ctx.send("✅ Tidak ada boss yang sedang dipantau.")
         return
     
-    pesan = "⏳ **Daftar Boss dipantau:**\n"
-    now = datetime.now(WIB).replace(tzinfo=None)
+    now_wib = datetime.now(WIB).replace(tzinfo=None)
+    pesan = "⚔️ **JADWAL BOSS**\n"
     
     for nama, waktu_str in data.items():
-        waktu = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
-        sisa = int((waktu - now).total_seconds() / 60)
-        pesan += f"- **{nama.capitalize()}**: {max(0, sisa)} menit lagi\n"
-    
+        waktu_spawn = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
+        sisa = int((waktu_spawn - now_wib).total_seconds() / 60)
+        
+        if sisa < 0: continue
+        
+        waktu_wib = waktu_spawn.strftime("%H:%M")
+        waktu_pht = (waktu_spawn + timedelta(hours=1)).strftime("%H:%M")
+        pesan += (f"**{nama.capitalize()}**\n"
+                  f"  > 🇮🇩 {waktu_wib} WIB | 🇵🇭 {waktu_pht} PHT\n"
+                  f"  > ⏳ {sisa}m lagi\n")
     await ctx.send(pesan)
 
 @bot.command()
