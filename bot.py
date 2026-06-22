@@ -70,11 +70,12 @@ async def monitor_boss():
         sisa = int((spawn_time - now).total_seconds() / 60)
         if boss not in notifikasi_sent: notifikasi_sent[boss] = {"10": False, "5": False}
         if sisa in [10, 5] and not notifikasi_sent[boss][str(sisa)]:
-            if channel: await channel.send(f"⚠️ Boss **{boss.capitalize()}** spawn {sisa} menit lagi!")
+            if channel: await channel.send(f"@everyone ⚠️ Boss **{boss.capitalize()}** spawn {sisa} menit lagi!")
             notifikasi_sent[boss][str(sisa)] = True
         elif sisa <= 0:
             if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn!", view=BossDoneView(boss))
             to_remove.append(boss)
+            if boss in notifikasi_sent: del notifikasi_sent[boss]
     for boss in to_remove: del data[boss]
     if to_remove: simpan_data(data)
 
@@ -91,7 +92,7 @@ async def monitor_fix_boss():
                 key = f"{row[2]}_{row[1]}"
                 if key not in notifikasi_fix: notifikasi_fix[key] = {"10": False, "5": False}
                 if sisa in [10, 5] and not notifikasi_fix[key][str(sisa)]:
-                    await channel.send(f"⚠️ Fix Boss **{row[2]}** spawn {sisa} menit lagi!")
+                    await channel.send(f"@everyone ⚠️ Fix Boss **{row[2]}** spawn {sisa} menit lagi!")
                     notifikasi_fix[key][str(sisa)] = True
     except: pass
 
