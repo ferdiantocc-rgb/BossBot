@@ -10,14 +10,12 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
 WIB = timezone(timedelta(hours=7))
 
-# --- PATH PERSISTENT ---
 DATA_DIR = "/app/data"
 DATA_FILE = os.path.join(DATA_DIR, "boss_data.json")
 
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
 
-# --- SETUP ---
 creds_dict = json.loads(os.getenv('GOOGLE_CREDENTIALS'))
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -30,11 +28,10 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 notifikasi_sent = {}
 notifikasi_fix = {}
 
-# --- FUNGSI DATA ---
 def simpan_data(data):
     try:
         with open(DATA_FILE, "w") as f: json.dump(data, f)
-    except Exception as e: print(f"Gagal simpan: {e}")
+    except: pass
 
 def muat_data():
     if not os.path.exists(DATA_FILE): return {}
@@ -42,13 +39,26 @@ def muat_data():
         with open(DATA_FILE, "r") as f: return json.load(f)
     except: return {}
 
-def format_countdown(menit_total):
-    menit_total = max(0, menit_total)
-    jam = menit_total // 60
-    mnt = menit_total % 60
-    return f"{jam}j {mnt}m" if jam > 0 else f"{mnt}m"
+def format_countdown(m):
+    m = max(0, int(m))
+    return f"{m // 60}j {m % 60}m" if m >= 60 else f"{m}m"
 
-# --- TASKS ---
+class BossDoneView(discord.ui.View):
+    def __init__(self, nama_boss):
+        super().__init__(timeout=None)
+        self.nama_boss = nama_boss
+
+    @discord.ui.button(label="✅ Boss Sudah Mati", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.disabled = True
+        button.style = discord.ButtonStyle.secondary
+        button.label = "Reset Diproses"
+        
+        data = muat_data()
+        data[self.nama_boss.lower()] = (datetime.now(WIB) + timedelta(minutes=600)).isoformat()
+        simpan_data(data)
+        await interaction.response.edit_message(content=f"✅ **{self.nama_boss.capitalize()}** di-reset.", view=self)
+
 @tasks.loop(minutes=1)
 async def monitor_boss():
     now = datetime.now(WIB).replace(tzinfo=None)
@@ -60,10 +70,10 @@ async def monitor_boss():
         sisa = int((spawn_time - now).total_seconds() / 60)
         if boss not in notifikasi_sent: notifikasi_sent[boss] = {"10": False, "5": False}
         if sisa in [10, 5] and not notifikasi_sent[boss][str(sisa)]:
-            if channel: await channel.send(f"@everyone ⚠️ Boss **{boss.capitalize()}** spawn {sisa} menit lagi!")
+            if channel: await channel.send(f"⚠️ Boss **{boss.capitalize()}** spawn {sisa} menit lagi!")
             notifikasi_sent[boss][str(sisa)] = True
         elif sisa <= 0:
-            if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn!")
+            if channel: await channel.send(f"⚔️ Boss **{boss.capitalize()}** sudah spawn!", view=BossDoneView(boss))
             to_remove.append(boss)
     for boss in to_remove: del data[boss]
     if to_remove: simpan_data(data)
@@ -81,11 +91,10 @@ async def monitor_fix_boss():
                 key = f"{row[2]}_{row[1]}"
                 if key not in notifikasi_fix: notifikasi_fix[key] = {"10": False, "5": False}
                 if sisa in [10, 5] and not notifikasi_fix[key][str(sisa)]:
-                    await channel.send(f"@everyone ⚠️ Fix Boss **{row[2]}** spawn {sisa} menit lagi!")
+                    await channel.send(f"⚠️ Fix Boss **{row[2]}** spawn {sisa} menit lagi!")
                     notifikasi_fix[key][str(sisa)] = True
     except: pass
 
-# --- COMMANDS ---
 @bot.command()
 async def startboss(ctx, nama: str, menit: int):
     data = muat_data()
@@ -102,23 +111,19 @@ async def status(ctx):
         pesan = "⚔️ **JADWAL BOSS**\n"
         for nama, waktu_str in data.items():
             spawn = datetime.fromisoformat(waktu_str).replace(tzinfo=None)
-            w_wib = spawn.strftime("%H:%M")
-            w_pht = (spawn + timedelta(hours=1)).strftime("%H:%M")
             diff = int((spawn - now).total_seconds() / 60)
-            pesan += f"\n**{nama.capitalize()}**\n > 🇮🇩 {w_wib} WIB | 🇵🇭 {w_pht} PHT\n > ⏳ {format_countdown(diff)} lagi\n"
+            pesan += f"\n**{nama.capitalize()}**\n > 🇮🇩 {spawn.strftime('%H:%M')} WIB | 🇵🇭 {(spawn + timedelta(hours=1)).strftime('%H:%M')} PHT\n > ⏳ {format_countdown(diff)} lagi\n"
         await ctx.send(pesan)
 
 @bot.command()
 async def fixlist(ctx):
     try:
         now = datetime.now(WIB)
-        current_day = now.strftime("%A")
-        sheet = client.open("Master Boss timer").worksheet("fix")
-        data = sheet.get_values("A4:C35")
-        pesan = f"📅 **Jadwal Fix ({current_day}):**\n"
+        data = client.open("Master Boss timer").worksheet("fix").get_values("A4:C35")
+        pesan = f"📅 **Jadwal Fix ({now.strftime('%A')}):**\n"
         found = False
         for row in data:
-            if len(row) >= 3 and current_day.lower() in row[0].lower():
+            if len(row) >= 3 and now.strftime("%A").lower() in row[0].lower():
                 w_wib = row[1].split('/')[0].strip()
                 w_pht = (datetime.strptime(w_wib, "%H:%M") + timedelta(hours=1)).strftime("%H:%M")
                 pesan += f"• **{row[2]}**\n  > 🇮🇩 {w_wib} WIB | 🇵🇭 {w_pht} PHT\n"
